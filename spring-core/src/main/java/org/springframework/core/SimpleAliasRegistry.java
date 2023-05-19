@@ -34,16 +34,16 @@ import org.springframework.util.StringValueResolver;
  * Serves as base class for
  * {@link org.springframework.beans.factory.support.BeanDefinitionRegistry}
  * implementations.
- *
  * @author Juergen Hoeller
  * @since 2.5.2
+ * 对AliasRegistry的CRUD接口进行实现，并使用map作为缓存
  */
 public class SimpleAliasRegistry implements AliasRegistry {
 
 	/** Logger available to subclasses */
 	protected final Log logger = LogFactory.getLog(getClass());
 
-	/** Map from alias to canonical name */
+	/** Map from alias to canonical name 加final是一种良好的编码规范，表示该对象不可以被修改 保证安全性*/
 	private final Map<String, String> aliasMap = new ConcurrentHashMap<>(16);
 
 
@@ -51,7 +51,9 @@ public class SimpleAliasRegistry implements AliasRegistry {
 	public void registerAlias(String name, String alias) {
 		Assert.hasText(name, "'name' must not be empty");
 		Assert.hasText(alias, "'alias' must not be empty");
+		//1.这里加锁是为了保证整个方法事物的原子性，ConcurrentHashMap只能保证某个操作的并发访问。
 		synchronized (this.aliasMap) {
+			//2.因为bean的别名默认就是本身，所以这里如果一样就忽略，并删除可能出现的相同别名
 			if (alias.equals(name)) {
 				this.aliasMap.remove(alias);
 				if (logger.isDebugEnabled()) {
@@ -61,10 +63,12 @@ public class SimpleAliasRegistry implements AliasRegistry {
 			else {
 				String registeredName = this.aliasMap.get(alias);
 				if (registeredName != null) {
+					//3.相同bean的相同别名 已经存在了直接忽略 return掉
 					if (registeredName.equals(name)) {
 						// An existing alias - no need to re-register
 						return;
 					}
+					//4.是否进行相同名称的不同定义
 					if (!allowAliasOverriding()) {
 						throw new IllegalStateException("Cannot define alias '" + alias + "' for name '" +
 								name + "': It is already registered for name '" + registeredName + "'.");
@@ -74,6 +78,7 @@ public class SimpleAliasRegistry implements AliasRegistry {
 								registeredName + "' with new target name '" + name + "'");
 					}
 				}
+				//5.检查并放入
 				checkForAliasCircle(name, alias);
 				this.aliasMap.put(alias, name);
 				if (logger.isDebugEnabled()) {
@@ -84,7 +89,7 @@ public class SimpleAliasRegistry implements AliasRegistry {
 	}
 
 	/**
-	 * Return whether alias overriding is allowed.
+	 * Return whether alias overriding is allowed. 是否允许别名重写
 	 * Default is {@code true}.
 	 */
 	protected boolean allowAliasOverriding() {
@@ -92,7 +97,7 @@ public class SimpleAliasRegistry implements AliasRegistry {
 	}
 
 	/**
-	 * Determine whether the given name has the given alias registered.
+	 * Determine whether the given name has the given alias registered. 给定名称是否已注册指定别名
 	 * @param name the name to check
 	 * @param alias the alias to look for
 	 * @since 4.2.1
